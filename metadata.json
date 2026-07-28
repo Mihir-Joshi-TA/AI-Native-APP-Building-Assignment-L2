@@ -1,0 +1,6 @@
+{
+  "name": "Weather Intelligence",
+  "description": "High-density real-time weather intelligence dashboard powered by Open-Meteo telemetry and forecast analytics.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
