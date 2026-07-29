@@ -10,7 +10,7 @@ import { CurrentWeatherHero } from './components/CurrentWeatherHero';
 import { HourlyForecastTrends } from './components/HourlyForecastTrends';
 import { ExtendedOutlook } from './components/ExtendedOutlook';
 import { AdvisoryEngineView } from './components/AdvisoryEngineView';
-import { Loader2, AlertTriangle, ShieldCheck, Activity, Terminal } from 'lucide-react';
+import { Loader2, AlertTriangle, ShieldCheck, RefreshCw, Terminal, Search } from 'lucide-react';
 
 const SELECTED_CITY_KEY = 'weather_intel_selected_city_v1';
 const TEMP_UNIT_KEY = 'weather_intel_temp_unit_v1';
@@ -45,14 +45,24 @@ export default function App() {
   const loadWeather = useCallback(async (city: CityLocation) => {
     setIsLoading(true);
     setError(null);
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setError('Unable to retrieve weather information. Please try again later.');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const data = await fetchWeatherData(city.latitude, city.longitude, city.timezone || 'auto');
+      if (!data || !data.current) {
+        throw new Error('Invalid telemetry payload');
+      }
       setWeatherData(data);
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setLastUpdated(timeStr);
     } catch (err: any) {
       console.error('Failed to load weather data:', err);
-      setError(err?.message || 'Failed to communicate with Open-Meteo telemetry API.');
+      setError('Unable to retrieve weather information. Please try again later.');
     } finally {
       setIsLoading(false);
     }
@@ -62,7 +72,28 @@ export default function App() {
     loadWeather(selectedCity);
   }, [selectedCity, loadWeather]);
 
+  // Online / Offline Listeners
+  useEffect(() => {
+    const handleOffline = () => {
+      setError('Unable to retrieve weather information. Please try again later.');
+    };
+    const handleOnline = () => {
+      if (selectedCity) {
+        loadWeather(selectedCity);
+      }
+    };
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [selectedCity, loadWeather]);
+
   const handleSelectCity = (city: CityLocation) => {
+    setError(null);
     setSelectedCity(city);
     try {
       localStorage.setItem(SELECTED_CITY_KEY, JSON.stringify(city));
@@ -98,44 +129,78 @@ export default function App() {
         onRefresh={handleRefresh}
         isRefreshing={isLoading}
         lastUpdated={lastUpdated}
+        onSetGlobalError={setError}
       />
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {/* Error Notification */}
+        {/* Error Notification Banner */}
         {error && (
-          <div className="p-4 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-200 flex items-start gap-3 shadow-lg">
-            <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
-            <div className="flex-1 text-xs font-mono">
-              <span className="font-bold uppercase text-rose-300">Telemetry API Error:</span>{' '}
-              {error}
+          <div className="p-4 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xl animate-fadeIn">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
+              <div>
+                <p className="text-sm font-medium">{error}</p>
+                <p className="text-xs text-rose-300/80">
+                  You can search for another city above or click retry to attempt fetching again.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={isLoading}
+              className="px-3 py-1.5 rounded-lg bg-rose-900/90 hover:bg-rose-800 border border-rose-700 text-white text-xs font-semibold flex items-center gap-1.5 transition shrink-0 self-end sm:self-center"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Retry</span>
+            </button>
+          </div>
+        )}
+
+        {/* Loading Indicator */}
+        {isLoading && (
+          <div className="w-full h-80 rounded-2xl bg-slate-900/40 border border-slate-800/80 flex flex-col items-center justify-center p-8 space-y-4 shadow-inner">
+            <div className="relative">
+              <div className="h-12 w-12 rounded-full border-4 border-slate-800 border-t-cyan-400 animate-spin" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Loader2 className="h-5 w-5 text-cyan-400 animate-pulse" />
+              </div>
+            </div>
+            <div className="text-center space-y-1 font-mono">
+              <p className="text-sm font-semibold text-slate-200 tracking-wide uppercase">
+                Fetching Weather Data...
+              </p>
+              <p className="text-xs text-slate-400">
+                Loading high-res current, hourly, and 7-day weather forecasts for {selectedCity.name}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Full Error Empty State (when no weather data exists and not loading) */}
+        {!isLoading && !weatherData && error && (
+          <div className="w-full py-16 rounded-2xl bg-slate-900/30 border border-slate-800/80 flex flex-col items-center justify-center text-center p-8 space-y-4">
+            <div className="h-16 w-16 rounded-full bg-rose-950/50 border border-rose-800/60 flex items-center justify-center text-rose-400 shadow-lg">
+              <AlertTriangle className="h-8 w-8" />
+            </div>
+            <div className="max-w-md space-y-2">
+              <h3 className="text-lg font-bold text-slate-200">Unable to retrieve weather information</h3>
+              <p className="text-xs text-slate-400">{error}</p>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
               <button
                 onClick={handleRefresh}
-                className="ml-3 underline hover:text-white font-bold"
+                className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-semibold text-xs hover:bg-cyan-400 transition shadow-lg shadow-cyan-500/20 flex items-center gap-2"
               >
-                Retry Request
+                <RefreshCw className="h-4 w-4" />
+                <span>Try Again</span>
               </button>
             </div>
           </div>
         )}
 
-        {/* Loading State Skeleton */}
-        {isLoading && !weatherData && (
-          <div className="w-full h-96 rounded-2xl bg-slate-900/40 border border-slate-800/80 flex flex-col items-center justify-center p-8 space-y-4">
-            <Loader2 className="h-10 w-10 text-cyan-400 animate-spin" />
-            <div className="text-center space-y-1 font-mono">
-              <p className="text-sm font-semibold text-slate-200">
-                CONNECTING TO OPEN-METEO TELEMETRY SENSORS...
-              </p>
-              <p className="text-xs text-slate-500">
-                Fetching high-density current, hourly, and 7-day atmospheric models for {selectedCity.name}
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* Live Weather Analytics Dashboard */}
-        {weatherData && (
+        {!isLoading && weatherData && (
           <div className="space-y-6 animate-fadeIn">
             {/* 1. Hero Current Weather Display & Telemetry Grid */}
             <CurrentWeatherHero
@@ -171,11 +236,11 @@ export default function App() {
             <Terminal className="h-4 w-4 text-cyan-500" />
             <span>WEATHER.INTEL PLATFORM v2.4</span>
             <span className="text-slate-700">|</span>
-            <span className="text-slate-400">Open-Meteo Public API (Non-Commercial / Open Data)</span>
+            <span className="text-slate-400">Open-Meteo Weather API</span>
           </div>
           <div className="flex items-center gap-3 text-[11px]">
             <span className="flex items-center gap-1 text-emerald-400">
-              <ShieldCheck className="h-3.5 w-3.5" /> Zero Key Required
+              <ShieldCheck className="h-3.5 w-3.5" /> High Reliability Service
             </span>
             <span className="text-slate-600">•</span>
             <span>WMO Standards Compliant</span>
@@ -185,3 +250,4 @@ export default function App() {
     </div>
   );
 }
+

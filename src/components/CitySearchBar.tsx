@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MapPin, X, Clock, Loader2, Navigation } from 'lucide-react';
+import { Search, MapPin, X, Clock, Loader2, Navigation, AlertCircle } from 'lucide-react';
 import { CityLocation, TemperatureUnit } from '../types/weather';
 import { searchCities, reverseGeocode, DEFAULT_CITIES } from '../services/openMeteoApi';
 
@@ -11,6 +11,7 @@ interface CitySearchBarProps {
   onRefresh: () => void;
   isRefreshing: boolean;
   lastUpdated: string | null;
+  onSetGlobalError?: (msg: string | null) => void;
 }
 
 const RECENT_SEARCHES_KEY = 'weather_intel_recent_searches_v1';
@@ -23,6 +24,7 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
   onRefresh,
   isRefreshing,
   lastUpdated,
+  onSetGlobalError,
 }) => {
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CityLocation[]>([]);
@@ -30,6 +32,7 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [recentSearches, setRecentSearches] = useState<CityLocation[]>([]);
   const [isGpsLoading, setIsGpsLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Load recent searches from localStorage
@@ -71,17 +74,42 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
 
   // Debounced Search API call
   useEffect(() => {
-    if (!query || query.trim().length < 2) {
+    if (!query) {
+      setSearchResults([]);
+      setIsSearching(false);
+      setSearchError(null);
+      return;
+    }
+
+    if (query.trim().length < 2) {
       setSearchResults([]);
       setIsSearching(false);
       return;
     }
 
-    setIsSearching(true);
-    const timer = setTimeout(async () => {
-      const results = await searchCities(query);
-      setSearchResults(results);
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setSearchError('Unable to retrieve weather information. Please try again later.');
       setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchError(null);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchCities(query);
+        setSearchResults(results);
+        if (results.length === 0) {
+          setSearchError('City not found. Please check the spelling and try again.');
+        } else {
+          setSearchError(null);
+        }
+      } catch (err) {
+        console.error('Search error:', err);
+        setSearchError('Unable to retrieve weather information. Please try again later.');
+      } finally {
+        setIsSearching(false);
+      }
     }, 300);
 
     return () => clearTimeout(timer);
@@ -91,27 +119,80 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
     onSelectCity(city);
     addToRecent(city);
     setQuery('');
+    setSearchError(null);
+    if (onSetGlobalError) onSetGlobalError(null);
     setIsOpen(false);
+  };
+
+  const handleSearchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = query.trim();
+
+    if (!trimmed) {
+      setSearchError('Please enter a city name.');
+      setIsOpen(true);
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setSearchError('Unable to retrieve weather information. Please try again later.');
+      setIsOpen(true);
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchError(null);
+    try {
+      const results = await searchCities(trimmed);
+      setSearchResults(results);
+      setIsOpen(true);
+
+      if (results.length === 0) {
+        setSearchError('City not found. Please check the spelling and try again.');
+      } else if (results.length === 1) {
+        handleSelect(results[0]);
+      }
+    } catch (err) {
+      console.error('Search submit error:', err);
+      setSearchError('Unable to retrieve weather information. Please try again later.');
+      setIsOpen(true);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleGpsLocation = () => {
     if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
+      setSearchError('Geolocation is not supported by your browser.');
+      setIsOpen(true);
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setSearchError('Unable to retrieve weather information. Please try again later.');
+      setIsOpen(true);
       return;
     }
 
     setIsGpsLoading(true);
+    setSearchError(null);
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const { latitude, longitude } = position.coords;
-        const gpsCity = await reverseGeocode(latitude, longitude);
-        onSelectCity(gpsCity);
-        addToRecent(gpsCity);
-        setIsGpsLoading(false);
+        try {
+          const { latitude, longitude } = position.coords;
+          const gpsCity = await reverseGeocode(latitude, longitude);
+          handleSelect(gpsCity);
+        } catch (err) {
+          setSearchError('Unable to retrieve weather information. Please try again later.');
+          setIsOpen(true);
+        } finally {
+          setIsGpsLoading(false);
+        }
       },
       (error) => {
         console.error('Geolocation error:', error);
-        alert(`Location access error: ${error.message}`);
+        setSearchError('Unable to retrieve weather information. Please try again later.');
+        setIsOpen(true);
         setIsGpsLoading(false);
       },
       { timeout: 10000, enableHighAccuracy: true }
@@ -172,7 +253,7 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
 
         {/* Search Bar & Auto-complete */}
         <div className="relative w-full md:w-96" ref={dropdownRef}>
-          <div className="relative flex items-center">
+          <form onSubmit={handleSearchSubmit} className="relative flex items-center">
             <Search className="absolute left-3 h-4 w-4 text-slate-400 pointer-events-none" />
             <input
               id="city-search-input"
@@ -180,15 +261,33 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
+                setSearchError(null);
                 setIsOpen(true);
               }}
               onFocus={() => setIsOpen(true)}
               placeholder="Search city or location..."
-              className="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl pl-9 pr-20 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/80 font-sans transition shadow-inner"
+              className="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl pl-9 pr-24 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/80 font-sans transition shadow-inner"
             />
-            
+
+            {/* Clear button if text typed */}
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery('');
+                  setSearchError(null);
+                  setSearchResults([]);
+                }}
+                className="absolute right-14 text-slate-400 hover:text-slate-200 p-1"
+                title="Clear input"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+
             {/* GPS Button inside search */}
             <button
+              type="button"
               id="gps-location-btn"
               onClick={handleGpsLocation}
               disabled={isGpsLoading}
@@ -202,15 +301,23 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
               )}
               <span>GPS</span>
             </button>
-          </div>
+          </form>
 
-          {/* Auto-complete Dropdown */}
+          {/* Auto-complete Dropdown & Error Messages */}
           {isOpen && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50 max-h-80 overflow-y-auto divide-y divide-slate-800">
+              {/* Display Search Error Banner */}
+              {searchError && (
+                <div className="p-3 bg-rose-950/80 border-b border-rose-800/80 text-rose-200 text-xs flex items-center gap-2 animate-fadeIn">
+                  <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+                  <span className="font-medium">{searchError}</span>
+                </div>
+              )}
+
               {isSearching && (
                 <div className="p-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
-                  <span>Searching Open-Meteo Geocoding database...</span>
+                  <span>Searching location database...</span>
                 </div>
               )}
 
@@ -242,12 +349,6 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
                 </div>
               )}
 
-              {!isSearching && query.trim().length >= 2 && searchResults.length === 0 && (
-                <div className="p-4 text-center text-xs text-slate-400">
-                  No location found for &quot;{query}&quot;. Try a different spelling or city name.
-                </div>
-              )}
-
               {/* Recent Searches section */}
               {recentSearches.length > 0 && !query && (
                 <div>
@@ -257,6 +358,7 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
                       Recent Searches
                     </span>
                     <button
+                      type="button"
                       onClick={clearRecent}
                       className="text-[10px] text-slate-500 hover:text-rose-400 transition"
                     >
@@ -266,6 +368,7 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
                   {recentSearches.map((city) => (
                     <button
                       key={`recent-${city.latitude}-${city.longitude}`}
+                      type="button"
                       onClick={() => handleSelect(city)}
                       className="w-full text-left px-3 py-2 hover:bg-slate-800 flex items-center justify-between transition"
                     >
@@ -373,3 +476,4 @@ export const CitySearchBar: React.FC<CitySearchBarProps> = ({
     </header>
   );
 };
+
