@@ -46,9 +46,9 @@ A high-density real-time weather intelligence dashboard powered by Open-Meteo te
    npm install
    ```
 
-### Running in Development Mode
+### Running Locally (Development Mode)
 
-Start the development server (runs on port `3000` by default):
+Start the local development server (runs on `http://localhost:3000` by default):
 
 ```bash
 npm run dev
@@ -56,23 +56,23 @@ npm run dev
 
 Open `http://localhost:3000` in your browser.
 
-### Building for Production
+### Building & Running Locally (Production Mode)
 
-Compile the client bundle and bundle the Express backend server:
+1. Build the frontend client assets and backend Express bundle:
+   ```bash
+   npm run build
+   ```
 
-```bash
-npm run build
-```
+2. Start the production Node server:
+   ```bash
+   npm start
+   ```
 
-Start the production server:
-
-```bash
-npm start
-```
+Open `http://localhost:3000` in your browser.
 
 ---
 
-## 🐳 Docker Setup & Deployment
+## 🐳 Docker Setup & Execution
 
 ### 1. Docker Files Overview
 
@@ -91,12 +91,38 @@ docker ps
 
 *Note: If Docker is not available inside WSL, follow the Docker Engine setup reference in the WSL and Docker Setup Guidelines. Contact IT Helpdesk only if installation fails, permissions are blocked, package repositories are unavailable, or the Docker daemon cannot be started.*
 
-### 3. Build the Docker image
+### 3. Build the Docker Image
 
-Run this from the WSL project root:
+Run this from the WSL or terminal project root:
 
 ```bash
 docker build -t weather-intelligence .
+```
+
+### 4. Run the Docker Container
+
+Run the built image mapping port `8080` to host port `8080`:
+
+```bash
+docker run -d -p 8080:8080 --name weather-intelligence-app weather-intelligence
+```
+
+- **Application URL**: Open `http://localhost:8080` in your browser.
+- **Healthcheck Endpoint**: Visit `http://localhost:8080/health` (returns `200 ok`).
+
+### 5. Managing the Running Container
+
+To view logs, stop, or remove the container:
+
+```bash
+# View container logs
+docker logs -f weather-intelligence-app
+
+# Stop the container
+docker stop weather-intelligence-app
+
+# Remove the container
+docker rm weather-intelligence-app
 ```
 
 ---
