@@ -72,6 +72,35 @@ npm start
 
 ---
 
+## 🐳 Docker Setup & Deployment
+
+### 1. Docker Files Overview
+
+- **`Dockerfile`**: Multi-stage build process using `node:20-alpine` for asset building and `nginx:1.27-alpine` for serving static files on port 8080.
+- **`.dockerignore`**: Excludes `node_modules`, `dist`, logs, and local environment files.
+- **`nginx.conf`**: Configures Nginx with SPA fallback (`try_files`) and a `/health` endpoint returning `200 ok`.
+
+### 2. Verify Docker access inside WSL
+
+Run these commands inside Ubuntu WSL:
+
+```bash
+docker --version
+docker ps
+```
+
+*Note: If Docker is not available inside WSL, follow the Docker Engine setup reference in the WSL and Docker Setup Guidelines. Contact IT Helpdesk only if installation fails, permissions are blocked, package repositories are unavailable, or the Docker daemon cannot be started.*
+
+### 3. Build the Docker image
+
+Run this from the WSL project root:
+
+```bash
+docker build -t weather-intelligence .
+```
+
+---
+
 ## 🔍 Validation & Linting
 
 Run TypeScript type check:
